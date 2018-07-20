@@ -46,6 +46,9 @@
 #include "f_mtp.c"
 #endif
 #include "f_accessory.c"
+#include "f_hid.h"
+#include "f_hid_android_keyboard.c"
+#include "f_hid_android_mouse.c"
 #define USB_ETH_RNDIS y
 #define USB_FRNDIS_INCLUDED y
 #include "f_rndis.c"
@@ -1332,6 +1335,41 @@ static struct device_attribute *audio_source_function_attributes[] = {
 	NULL
 };
 
+static int hid_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
+{
+       return ghid_setup(cdev->gadget, 2);
+}
+
+static void hid_function_cleanup(struct android_usb_function *f)
+{
+       ghid_cleanup();
+}
+
+static int hid_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
+{
+       int ret;
+       printk(KERN_INFO "hid keyboard\n");
+       ret = hidg_bind_config(c, &ghid_device_android_keyboard, 0);
+       if (ret) {
+               pr_info("%s: hid_function_bind_config keyboard failed: %d\n", __func__, ret);
+               return ret;
+       }
+       printk(KERN_INFO "hid mouse\n");
+       ret = hidg_bind_config(c, &ghid_device_android_mouse, 1);
+       if (ret) {
+               pr_info("%s: hid_function_bind_config mouse failed: %d\n", __func__, ret);
+               return ret;
+       }
+       return 0;
+}
+
+static struct android_usb_function hid_function = {
+       .name           = "hid",
+       .init           = hid_function_init,
+       .cleanup        = hid_function_cleanup,
+       .bind_config    = hid_function_bind_config,
+};
+
 static struct android_usb_function audio_source_function = {
 	.name		= "audio_source",
 	.init		= audio_source_function_init,
@@ -1352,6 +1390,7 @@ static struct android_usb_function *supported_functions[] = {
 	&rndis_function,
 	&mass_storage_function,
 	&accessory_function,
+	&hid_function,
 	&audio_source_function,
 #ifdef CONFIG_USB_GADGET_CHARGE_ONLY
 	&charge_only_function,
@@ -1522,6 +1561,8 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 		mutex_unlock(&dev->mutex);
 		return -EBUSY;
 	}
+	/* HID driver always enabled, it's the whole point of this kernel patch */
+	android_enable_function(dev, "hid");
 
 	INIT_LIST_HEAD(&dev->enabled_functions);
 
